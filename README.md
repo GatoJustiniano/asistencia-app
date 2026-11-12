@@ -24,10 +24,20 @@ git tag v1.0.0
 - La configuración llega por `.env`, que escribe cloud-init a partir de los parámetros de SSM del tenant. Consulta `backend/.env.example` para ver las variables; nunca se sube un `.env` real.
 - `GET /api/health` lo usan el worker de la plataforma (para saber si el despliegue terminó) y Prometheus (para medir la disponibilidad).
 
-## Pendiente para el proyecto final
+## Métricas (RF-26)
 
-- Exponer `GET /metrics` con `prom-client`: latencia, errores 5xx y estado de la base de datos (RF-26).
-- Leer la ruta de la base de datos desde una variable de entorno, para que use el volumen EBS.
+`utils/metricas.js` publica `GET /metrics` en un puerto aparte (`METRICS_PORT`, 9101 por defecto; `0` lo desactiva). El Security Group del tenant abre ese puerto solo a la plataforma, y el puerto público de la app no expone `/metrics`.
+
+| Métrica | Qué mide |
+|---|---|
+| `http_requests_total{metodo,ruta,codigo}` | Peticiones atendidas; con `codigo=~"5.."` salen los errores 5xx |
+| `http_request_duration_seconds{metodo,ruta}` | Latencia (histograma) |
+| `asistencia_db_up` | 1 si la base SQLite responde |
+| `asistencia_estudiantes` | Estudiantes del módulo activo |
+| `asistencia_limite{recurso}` | Límites del plan (`MAX_ESTUDIANTES`, `MAX_DOCENTES`, `MAX_CURSOS`) |
+| `process_*`, `nodejs_*` | Métricas estándar del proceso Node |
+
+`ruta` es el patrón de Express (`/api/admin/fechas/:id`), no la URL, para no crear una serie por cada valor. Las etiquetas `tenant`, `entorno` y `plan` las agrega Prometheus a partir de los tags de la EC2.
 
 ## Desarrollo local
 

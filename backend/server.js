@@ -7,6 +7,7 @@ const sqlite3 = require('sqlite3').verbose();
 const fileUpload = require('express-fileupload');
 const { normalizarFecha, normalizarHora, fechaISO, aMinutos, leerHoja, campo, pad } = require('./utils/excel');
 const { cargarDemo } = require('./demo/seed');
+const { medir, registrarMetricasNegocio, servirMetricas } = require('./utils/metricas');
 
 // ---------- Configuración (todo viene del .env) ----------
 const CFG = {
@@ -21,9 +22,16 @@ const CFG = {
   anticipo: Number(process.env.ANTICIPO_MIN ?? 30),
   demo: String(process.env.DEMO_DATA).toLowerCase() === 'true',
   frontendDir: path.resolve(__dirname, process.env.FRONTEND_DIR || '../frontend'),
+  metricsPort: Number(process.env.METRICS_PORT ?? 9101), // 0 = sin métricas
+  limites: {
+    estudiantes: Number(process.env.MAX_ESTUDIANTES) || 0,
+    docentes: Number(process.env.MAX_DOCENTES) || 0,
+    cursos: Number(process.env.MAX_CURSOS) || 0,
+  },
 };
 
 const app = express();
+app.use(medir);
 app.use(cors({ origin: CFG.cors.includes('*') ? true : CFG.cors }));
 app.use(express.json());
 app.use(fileUpload({ limits: { fileSize: 5 * 1024 * 1024 } }));
@@ -38,6 +46,7 @@ app.use(express.static(CFG.frontendDir));
 const db = new sqlite3.Database(CFG.dbPath, (e) => e && console.error(e.message));
 const run = (sql, p = []) => new Promise((ok, ko) => db.run(sql, p, function (e) { e ? ko(e) : ok(this); }));
 const get = (sql, p = []) => new Promise((ok, ko) => db.get(sql, p, (e, r) => (e ? ko(e) : ok(r))));
+registrarMetricasNegocio({ get, limites: CFG.limites });
 const all = (sql, p = []) => new Promise((ok, ko) => db.all(sql, p, (e, r) => (e ? ko(e) : ok(r))));
 const ah = (fn) => (req, res) => fn(req, res).catch((e) => { console.error(e); res.status(500).json({ error: e.message }); });
 
@@ -314,6 +323,7 @@ app.post('/api/admin/reiniciar-modulo', ah(async (req, res) => {
 
 initDB()
   .then(() => CFG.demo && cargarDemo({ run, get, moduloActivo, ahora }))
+  .then(() => servirMetricas(CFG.metricsPort))
   .then(() => app.listen(CFG.port, () => {
     console.log(`Servidor listo en http://localhost:${CFG.port}  (zona horaria: ${CFG.tz})`);
     //if (CFG.adminKey === 'admin123') console.warn('AVISO: cambia ADMIN_KEY en el archivo .env');
